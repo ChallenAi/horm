@@ -1,3 +1,5 @@
-module github.com/challenai/navipig
+module github.com/challenai/horm
 
 go 1.17
+
+require github.com/apache/thrift v0.15.0
