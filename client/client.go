@@ -23,7 +23,7 @@ func (rt *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(req)
 }
 
-func NewHBaseClient(addr string, headers []Header) *hbase.THBaseServiceClient {
+func NewHBaseClient(addr string, headers []Header) (*hbase.THBaseServiceClient, error) {
 	httpClient := http.Client{
 		Transport: &RoundTripper{
 			Headers: headers,
@@ -32,13 +32,13 @@ func NewHBaseClient(addr string, headers []Header) *hbase.THBaseServiceClient {
 	}
 	trans, err := thrift.NewTHttpClientWithOptions(addr, thrift.THttpClientOptions{Client: &httpClient})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	err = trans.Open()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	proto := thrift.NewTBinaryProtocol(trans, false, false)
 	thriftClient := thrift.NewTStandardClient(proto, proto)
-	return hbase.NewTHBaseServiceClient(thriftClient)
+	return hbase.NewTHBaseServiceClient(thriftClient), nil
 }
