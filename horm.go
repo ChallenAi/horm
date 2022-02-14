@@ -17,6 +17,7 @@ type Model struct {
 	Rowkey string
 }
 
+// DB represent a HBase database
 type DB struct {
 	Error        error
 	RowsAffected int64
@@ -24,16 +25,19 @@ type DB struct {
 	schemas      map[string]schema
 }
 
+// schema used to store struct field and column mapping information
 type schema struct {
 	col2field map[string]int
 	field2col []string
 }
 
+// Model should implement Table interface to specify the namespace and table name.
 type Table interface {
 	Namespace() string
 	TableName() string
 }
 
+// create a new hbase database from thrift client
 func NewDB(client *hbase.THBaseServiceClient) *DB {
 	hb := &DB{
 		db:      client,
@@ -42,6 +46,7 @@ func NewDB(client *hbase.THBaseServiceClient) *DB {
 	return hb
 }
 
+// HBase rows range query
 func (h *DB) Find() *DB {
 	return h
 }
@@ -72,6 +77,7 @@ func (h *DB) parseModel(model interface{}) schema {
 	return schm
 }
 
+// get a single row.
 func (h *DB) Get(ctx context.Context, model interface{}, rowkey string) *DB {
 	// border case: input a nil as model, not allowed
 	if model == nil {
@@ -109,6 +115,7 @@ func (h *DB) Get(ctx context.Context, model interface{}, rowkey string) *DB {
 	return h
 }
 
+// insert or update model to HBase
 func (h *DB) Set(ctx context.Context, model interface{}) *DB {
 	// border case: input a nil as model, not allowed
 	if model == nil {
