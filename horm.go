@@ -11,15 +11,10 @@ import (
 )
 
 const (
-	HBaseTagHint = "hbase"
-	ModelName    = "Model"
-	ResultSize   = 32 // todo: customized batchSize
+	HBaseTagHint    string = "hbase"
+	ModelName       string = "Model"
+	BatchResultSize int32  = 1 << 6 // todo: selft-customized batchResultSize, default set to be 64KB (assume 1KB bytes per row)
 )
-
-// base model for every hbase model
-type Model struct {
-	Rowkey string
-}
 
 // DB represent a HBase database
 type DB struct {
@@ -35,21 +30,10 @@ type schema struct {
 	field2col []string
 }
 
-type Column struct {
-	Family    string
-	Name      string
-	Timestamp int64
-}
-
+// filter input raw filter string and rows limit to thrift server
 type Filter struct {
 	FilterString string
-	// Limit        int64
-}
-
-// Model should implement Table interface to specify the namespace and table name.
-type Table interface {
-	Namespace() string
-	TableName() string
+	Limit        int32
 }
 
 // create a new hbase database from thrift client
@@ -105,17 +89,18 @@ func (h *DB) Find(ctx context.Context, list interface{}, startRow, stopRow strin
 		if filter.FilterString != "" {
 			tScan.FilterString = []byte(filter.FilterString)
 		}
-		// if filter.limit > 0 {
-		// 	limit := int32(filter.Limit)
-		// 	tScan.Limit = &limit
-		// }
 	}
 
 	var scanResults []*hbase.TResult_
 	listValue := reflect.ValueOf(list).Elem()
 	for {
 		var lastResult *hbase.TResult_ = nil
-		currentResults, err := h.db.GetScannerResults(ctx, []byte(fmt.Sprintf("%s:%s", tb.Namespace(), tb.TableName())), tScan, ResultSize)
+		// get query size in this batch
+		resultSz := getQuerySize(BatchResultSize, filter.Limit-int32(len(scanResults)))
+		if resultSz == 0 {
+			break
+		}
+		currentResults, err := h.db.GetScannerResults(ctx, []byte(fmt.Sprintf("%s:%s", tb.Namespace(), tb.TableName())), tScan, resultSz)
 		if err != nil {
 			h.Error = err
 			return h
@@ -138,6 +123,16 @@ func (h *DB) Find(ctx context.Context, list interface{}, startRow, stopRow strin
 		listValue.Set(reflect.Append(listValue, m.Elem()))
 	}
 	return h
+}
+
+func getQuerySize(batchSz, diff int32) int32 {
+	if diff <= 0 {
+		return 0
+	}
+	if batchSz < diff {
+		return batchSz
+	}
+	return diff
 }
 
 func getClosestRowAfter(row []byte) []byte {
