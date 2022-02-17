@@ -182,7 +182,11 @@ func (h *DB) registerModel(values reflect.Value) schema {
 		if values.Type().Field(i).Name == "Model" {
 			continue
 		}
-		tagsList := strings.Split(values.Type().Field(i).Tag.Get(HBaseTagHint), ",")
+		tagStr := values.Type().Field(i).Tag.Get(HBaseTagHint)
+		if tagStr == "" || tagStr == "-" {
+			continue
+		}
+		tagsList := strings.Split(tagStr, ",")
 		if len(tagsList) < 2 {
 			panic("hbase column doesn't have column family or qualifier")
 		}
