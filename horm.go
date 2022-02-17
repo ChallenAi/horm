@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	HBaseTagHint    string = "hbase"
+	HBaseTagHint    string = "horm"
 	ModelName       string = "Model"
 	BatchResultSize int32  = 1 << 6 // todo: selft-customized batchResultSize, default set to be 64KB (assume 1KB bytes per row)
 )
@@ -92,13 +92,16 @@ func (h *DB) Find(ctx context.Context, list interface{}, startRow, stopRow strin
 	}
 
 	var scanResults []*hbase.TResult_
+	resultSz := BatchResultSize
 	listValue := reflect.ValueOf(list).Elem()
 	for {
 		var lastResult *hbase.TResult_ = nil
 		// get query size in this batch
-		resultSz := getQuerySize(BatchResultSize, filter.Limit-int32(len(scanResults)))
-		if resultSz == 0 {
-			break
+		if filter != nil {
+			resultSz = getQuerySize(BatchResultSize, filter.Limit-int32(len(scanResults)))
+			if resultSz == 0 {
+				break
+			}
 		}
 		currentResults, err := h.db.GetScannerResults(ctx, []byte(fmt.Sprintf("%s:%s", tb.Namespace(), tb.TableName())), tScan, resultSz)
 		if err != nil {
@@ -158,11 +161,11 @@ func (h *DB) retrieveValue(value *reflect.Value, result *hbase.TResult_) {
 		key := fmt.Sprintf("%s:%s", v.Family, v.Qualifier)
 		if idx, ok := schm.col2field[key]; ok {
 			field := value.Field(idx)
-			// fmt.Println(field.SetString())
 			switch field.Kind() {
 			case reflect.Int:
 				field.Set(reflect.ValueOf(utils.DecodeInt(v.GetValue())))
-				// field.SetInt(int64(utils.DecodeInt(v.GetValue())))
+				// v, _ := utils.DecodeIntStr(v.GetValue())
+				// field.SetInt(int64(v))
 			case reflect.String:
 				field.SetString(string(v.GetValue()))
 			}
