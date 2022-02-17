@@ -233,3 +233,19 @@ func (h *DB) Set(ctx context.Context, model interface{}, rowkey string) *DB {
 	}
 	return h
 }
+
+func ValidateType() {
+
+}
+
+func (h *DB) BatchSet(ctx context.Context, model interface{}) *DB {
+	return h
+}
+
+func (h *DB) Delete(ctx context.Context, model interface{}, rowkey string) *DB {
+	return h
+}
+
+func (h *DB) DeleteAll(ctx context.Context, model interface{}) *DB {
+	return h
+}
