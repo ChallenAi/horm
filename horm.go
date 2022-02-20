@@ -1,13 +1,14 @@
 package horm
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/challenai/horm/thrift/hbase"
-	"github.com/challenai/horm/utils"
 )
 
 const (
@@ -162,12 +163,28 @@ func (h *DB) retrieveValue(value *reflect.Value, result *hbase.TResult_) {
 		if idx, ok := schm.col2field[key]; ok {
 			field := value.Field(idx)
 			switch field.Kind() {
-			case reflect.Int:
-				field.Set(reflect.ValueOf(utils.DecodeInt(v.GetValue())))
-				// v, _ := utils.DecodeIntStr(v.GetValue())
-				// field.SetInt(int64(v))
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				rsu, err := strconv.Atoi(string(v.GetValue()))
+				if err != nil {
+					fmt.Println("failed to parse int column")
+					panic(err)
+				}
+				field.SetInt(int64(rsu))
+			case reflect.Float32, reflect.Float64:
+				rsu, err := strconv.ParseFloat(string(v.GetValue()), 64)
+				if err != nil {
+					fmt.Println("failed to parse float column")
+					panic(err)
+				}
+				field.SetFloat(rsu)
 			case reflect.String:
 				field.SetString(string(v.GetValue()))
+			case reflect.Bool:
+				if bytes.Equal(v.GetValue(), []byte("1")) {
+					field.SetBool(true)
+				} else {
+					field.SetBool(false)
+				}
 			}
 		}
 	}
@@ -182,11 +199,7 @@ func (h *DB) registerModel(values reflect.Value) schema {
 		if values.Type().Field(i).Name == "Model" {
 			continue
 		}
-		tagStr := values.Type().Field(i).Tag.Get(HBaseTagHint)
-		if tagStr == "" || tagStr == "-" {
-			continue
-		}
-		tagsList := strings.Split(tagStr, ",")
+		tagsList := strings.Split(values.Type().Field(i).Tag.Get(HBaseTagHint), ",")
 		if len(tagsList) < 2 {
 			panic("hbase column doesn't have column family or qualifier")
 		}
@@ -222,7 +235,7 @@ func (h *DB) Get(ctx context.Context, model interface{}, rowkey string) *DB {
 }
 
 // insert or update model to HBase
-func (h *DB) Set(ctx context.Context, model interface{}, rowkey string) *DB {
+func (h *DB) Set(ctx context.Context, model interface{}, selects []Column, rowkey string) *DB {
 	// border case: input a nil as model, not allowed
 	if model == nil {
 		panic("can't input nil as a model")
@@ -231,6 +244,21 @@ func (h *DB) Set(ctx context.Context, model interface{}, rowkey string) *DB {
 	if !ok {
 		panic("please set namespace and table name for this model")
 	}
+
+	// if selects != nil && len(selects) > 0 {
+	// 	tScan.Columns = make([]*hbase.TColumn, 0, len(selects))
+	// 	for _, v := range selects {
+	// 		col := &hbase.TColumn{
+	// 			Family:    []byte(v.Family),
+	// 			Qualifier: []byte(v.Name),
+	// 		}
+	// 		if v.Timestamp != 0 {
+	// 			ts := int64(v.Timestamp)
+	// 			col.Timestamp = &ts
+	// 		}
+	// 		tScan.Columns = append(tScan.Columns, col)
+	// 	}
+	// }
 	return h
 }
 
