@@ -1,13 +1,12 @@
 package horm
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 
+	"github.com/challenai/horm/codec"
 	"github.com/challenai/horm/thrift/hbase"
 )
 
@@ -23,6 +22,7 @@ type DB struct {
 	RowsAffected int64
 	db           *hbase.THBaseServiceClient
 	schemas      map[string]schema
+	cdc          codec.Codec
 }
 
 // schema used to store struct field and column mapping information
@@ -38,10 +38,11 @@ type Filter struct {
 }
 
 // create a new hbase database from thrift client
-func NewDB(client *hbase.THBaseServiceClient) *DB {
+func NewDB(client *hbase.THBaseServiceClient, c codec.Codec) *DB {
 	hb := &DB{
 		db:      client,
 		schemas: map[string]schema{},
+		cdc:     c,
 	}
 	return hb
 }
@@ -164,27 +165,40 @@ func (h *DB) retrieveValue(value *reflect.Value, result *hbase.TResult_) {
 			field := value.Field(idx)
 			switch field.Kind() {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				rsu, err := strconv.Atoi(string(v.GetValue()))
+				n, err := h.cdc.DecodeInt(v.GetValue())
 				if err != nil {
 					fmt.Println("failed to parse int column")
 					panic(err)
 				}
-				field.SetInt(int64(rsu))
+				field.SetInt(n)
 			case reflect.Float32, reflect.Float64:
-				rsu, err := strconv.ParseFloat(string(v.GetValue()), 64)
+				n, err := h.cdc.DecodeFloat(v.GetValue())
 				if err != nil {
 					fmt.Println("failed to parse float column")
 					panic(err)
 				}
-				field.SetFloat(rsu)
+				field.SetFloat(n)
 			case reflect.String:
-				field.SetString(string(v.GetValue()))
-			case reflect.Bool:
-				if bytes.Equal(v.GetValue(), []byte("1")) {
-					field.SetBool(true)
-				} else {
-					field.SetBool(false)
+				s, err := h.cdc.DecodeString(v.GetValue())
+				if err != nil {
+					fmt.Println("failed to parse string column")
+					panic(err)
 				}
+				field.SetString(s)
+			case reflect.Bool:
+				b, err := h.cdc.DecodeBool(v.GetValue())
+				if err != nil {
+					fmt.Println("failed to parse bool column")
+					panic(err)
+				}
+				field.SetBool(b)
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				n, err := h.cdc.DecodeUint(v.GetValue())
+				if err != nil {
+					fmt.Println("failed to parse uint column")
+					panic(err)
+				}
+				field.SetUint(n)
 			}
 		}
 	}
@@ -244,21 +258,37 @@ func (h *DB) Set(ctx context.Context, model interface{}, selects []Column, rowke
 	if !ok {
 		panic("please set namespace and table name for this model")
 	}
+	schm, ok := h.schemas[reflect.TypeOf(model).Name()]
+	vals := reflect.ValueOf(model)
+	var columns []*hbase.TColumnValue
 
-	// if selects != nil && len(selects) > 0 {
-	// 	tScan.Columns = make([]*hbase.TColumn, 0, len(selects))
-	// 	for _, v := range selects {
-	// 		col := &hbase.TColumn{
-	// 			Family:    []byte(v.Family),
-	// 			Qualifier: []byte(v.Name),
-	// 		}
-	// 		if v.Timestamp != 0 {
-	// 			ts := int64(v.Timestamp)
-	// 			col.Timestamp = &ts
-	// 		}
-	// 		tScan.Columns = append(tScan.Columns, col)
-	// 	}
-	// }
+	if selects != nil && len(selects) > 0 {
+		columns = make([]*hbase.TColumnValue, 0, len(selects))
+		for _, v := range selects {
+			col := &hbase.TColumnValue{
+				Family:    []byte(v.Family),
+				Qualifier: []byte(v.Name),
+			}
+			field := vals.Field(schm.col2field[fmt.Sprintf("%s:%s", v.Family, v.Name)])
+			switch field.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				col.Value = h.cdc.EncodeInt(field.Int())
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				col.Value = h.cdc.EncodeUint(field.Uint())
+			case reflect.Float32, reflect.Float64:
+				col.Value = h.cdc.EncodeFloat(field.Float())
+			case reflect.String:
+				col.Value = h.cdc.EncodeString(field.String())
+			case reflect.Bool:
+				col.Value = h.cdc.EncodeBool(field.Bool())
+			}
+			if v.Timestamp != 0 {
+				ts := int64(v.Timestamp)
+				col.Timestamp = &ts
+			}
+			columns = append(columns, col)
+		}
+	}
 	return h
 }
 

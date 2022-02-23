@@ -16,11 +16,6 @@ import (
 	"github.com/challenai/horm/client"
 )
 
-const (
-	addr   = ""
-	rowkey = "id0001"
-)
-
 type User struct {
 	*horm.Model
 	Name string `hbase:"family,name"` // column family = family, column name = name
@@ -36,6 +31,11 @@ func (*User) TableName() string {
 }
 
 func main() {
+	const (
+		addr   = ""
+		rowkey = "id0001"
+	)
+
 	ctx := context.Background()
 	headers := []client.Header{
 		{Key: "header1", Value: ""},
