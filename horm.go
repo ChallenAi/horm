@@ -13,6 +13,7 @@ import (
 const (
 	HBaseTagHint    string = "horm"
 	ModelName       string = "Model"
+	RowName         string = "Rowkey"
 	BatchResultSize int32  = 1 << 6 // todo: selft-customized batchResultSize, default set to be 64KB (assume 1KB bytes per row)
 )
 
@@ -254,42 +255,76 @@ func (h *DB) Set(ctx context.Context, model interface{}, selects []Column, rowke
 	if model == nil {
 		panic("can't input nil as a model")
 	}
-	_, ok := model.(Table)
+	tb, ok := model.(Table)
 	if !ok {
 		panic("please set namespace and table name for this model")
 	}
-	schm, ok := h.schemas[reflect.TypeOf(model).Name()]
-	vals := reflect.ValueOf(model)
-	var columns []*hbase.TColumnValue
+	// vals := reflect.ValueOf(model)
+	// var columns []*hbase.TColumnValue
+
+	// if selects != nil && len(selects) > 0 {
+	// 	columns = make([]*hbase.TColumnValue, 0, len(selects))
+	// }
+	value := reflect.ValueOf(model).Elem()
+	put := &hbase.TPut{}
+	h.injectValue(&value, put, selects)
+	err := h.db.Put(ctx, []byte(fmt.Sprintf("%s:%s", tb.Namespace(), tb.TableName())), put)
+	h.Error = err
+	return h
+}
+
+func (h *DB) injectValue(value *reflect.Value, put *hbase.TPut, selects []Column) {
+	if put == nil {
+		return
+	}
+	schm, ok := h.schemas[value.Type().Name()]
+	if !ok {
+		schm = h.registerModel(*value)
+	}
+
+	// todo: assert horm.Model is a pointer when verify basic model extend
+	put.Row = value.FieldByName(ModelName).Elem().FieldByName(RowName).Bytes()
+	put.ColumnValues = []*hbase.TColumnValue{}
 
 	if selects != nil && len(selects) > 0 {
-		columns = make([]*hbase.TColumnValue, 0, len(selects))
 		for _, v := range selects {
-			col := &hbase.TColumnValue{
-				Family:    []byte(v.Family),
-				Qualifier: []byte(v.Name),
+			field := value.Field(schm.col2field[fmt.Sprintf("%s:%s", v.Family, v.Name)])
+			col := &hbase.TColumnValue{}
+			h.buildColumn(v.Family, v.Name, &field, col)
+			put.ColumnValues = append(put.ColumnValues, col)
+		}
+	} else {
+		for i, v := range schm.field2col {
+			if v != "" {
+				descriptors := strings.Split(v, ":")
+				if len(descriptors) == 2 {
+					field := value.Field(i)
+					col := &hbase.TColumnValue{}
+					h.buildColumn(descriptors[0], descriptors[1], &field, col)
+					put.ColumnValues = append(put.ColumnValues, col)
+				}
 			}
-			field := vals.Field(schm.col2field[fmt.Sprintf("%s:%s", v.Family, v.Name)])
-			switch field.Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				col.Value = h.cdc.EncodeInt(field.Int())
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				col.Value = h.cdc.EncodeUint(field.Uint())
-			case reflect.Float32, reflect.Float64:
-				col.Value = h.cdc.EncodeFloat(field.Float())
-			case reflect.String:
-				col.Value = h.cdc.EncodeString(field.String())
-			case reflect.Bool:
-				col.Value = h.cdc.EncodeBool(field.Bool())
-			}
-			if v.Timestamp != 0 {
-				ts := int64(v.Timestamp)
-				col.Timestamp = &ts
-			}
-			columns = append(columns, col)
 		}
 	}
-	return h
+}
+
+func (h *DB) buildColumn(family, qualifier string, field *reflect.Value, columnValue *hbase.TColumnValue) {
+	col := &hbase.TColumnValue{
+		Family:    []byte(family),
+		Qualifier: []byte(qualifier),
+	}
+	switch field.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		col.Value = h.cdc.EncodeInt(field.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		col.Value = h.cdc.EncodeUint(field.Uint())
+	case reflect.Float32, reflect.Float64:
+		col.Value = h.cdc.EncodeFloat(field.Float())
+	case reflect.String:
+		col.Value = h.cdc.EncodeString(field.String())
+	case reflect.Bool:
+		col.Value = h.cdc.EncodeBool(field.Bool())
+	}
 }
 
 func ValidateType() {

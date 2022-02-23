@@ -69,13 +69,13 @@ func (*DefaultCodec) DecodeString(b []byte) (string, error) {
 	return string(b), nil
 }
 
-func (*DefaultCodec) EncodeUInt(n uint64) []byte {
+func (*DefaultCodec) EncodeUint(n uint64) []byte {
 	bytesBuffer := bytes.NewBuffer([]byte{})
 	_ = binary.Write(bytesBuffer, binary.BigEndian, n)
 	return bytesBuffer.Bytes()
 }
 
-func (*DefaultCodec) DecodeUInt(b []byte) (uint64, error) {
+func (*DefaultCodec) DecodeUint(b []byte) (uint64, error) {
 	bytesBuffer := bytes.NewBuffer(b)
 	var n uint64
 	err := binary.Read(bytesBuffer, binary.BigEndian, &n)
