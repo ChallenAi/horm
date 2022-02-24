@@ -2,6 +2,7 @@ package horm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -214,7 +215,11 @@ func (h *DB) registerModel(values reflect.Value) schema {
 		if values.Type().Field(i).Name == "Model" {
 			continue
 		}
-		tagsList := strings.Split(values.Type().Field(i).Tag.Get(HBaseTagHint), ",")
+		tagsStr := values.Type().Field(i).Tag.Get(HBaseTagHint)
+		if tagsStr == "" || tagsStr == "-" {
+			continue
+		}
+		tagsList := strings.Split(tagsStr, ",")
 		if len(tagsList) < 2 {
 			panic("hbase column doesn't have column family or qualifier")
 		}
@@ -250,7 +255,7 @@ func (h *DB) Get(ctx context.Context, model interface{}, rowkey string) *DB {
 }
 
 // insert or update model to HBase
-func (h *DB) Set(ctx context.Context, model interface{}, selects []Column, rowkey string) *DB {
+func (h *DB) Set(ctx context.Context, model interface{}, selects []Column) *DB {
 	// border case: input a nil as model, not allowed
 	if model == nil {
 		panic("can't input nil as a model")
@@ -259,12 +264,7 @@ func (h *DB) Set(ctx context.Context, model interface{}, selects []Column, rowke
 	if !ok {
 		panic("please set namespace and table name for this model")
 	}
-	// vals := reflect.ValueOf(model)
-	// var columns []*hbase.TColumnValue
 
-	// if selects != nil && len(selects) > 0 {
-	// 	columns = make([]*hbase.TColumnValue, 0, len(selects))
-	// }
 	value := reflect.ValueOf(model).Elem()
 	put := &hbase.TPut{}
 	h.injectValue(&value, put, selects)
@@ -283,7 +283,8 @@ func (h *DB) injectValue(value *reflect.Value, put *hbase.TPut, selects []Column
 	}
 
 	// todo: assert horm.Model is a pointer when verify basic model extend
-	put.Row = value.FieldByName(ModelName).Elem().FieldByName(RowName).Bytes()
+	// fmt.Println(value.FieldByName(ModelName).Elem().FieldByName(RowName).String()))
+	put.Row = []byte(value.FieldByName(ModelName).Elem().FieldByName(RowName).String())
 	put.ColumnValues = []*hbase.TColumnValue{}
 
 	if selects != nil && len(selects) > 0 {
@@ -309,29 +310,58 @@ func (h *DB) injectValue(value *reflect.Value, put *hbase.TPut, selects []Column
 }
 
 func (h *DB) buildColumn(family, qualifier string, field *reflect.Value, columnValue *hbase.TColumnValue) {
-	col := &hbase.TColumnValue{
-		Family:    []byte(family),
-		Qualifier: []byte(qualifier),
-	}
+	columnValue.Family = []byte(family)
+	columnValue.Qualifier = []byte(qualifier)
 	switch field.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		col.Value = h.cdc.EncodeInt(field.Int())
+		columnValue.Value = h.cdc.EncodeInt(field.Int())
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		col.Value = h.cdc.EncodeUint(field.Uint())
+		columnValue.Value = h.cdc.EncodeUint(field.Uint())
 	case reflect.Float32, reflect.Float64:
-		col.Value = h.cdc.EncodeFloat(field.Float())
+		columnValue.Value = h.cdc.EncodeFloat(field.Float())
 	case reflect.String:
-		col.Value = h.cdc.EncodeString(field.String())
+		columnValue.Value = h.cdc.EncodeString(field.String())
 	case reflect.Bool:
-		col.Value = h.cdc.EncodeBool(field.Bool())
+		columnValue.Value = h.cdc.EncodeBool(field.Bool())
 	}
 }
 
-func ValidateType() {
-
+func validateListable(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Slice:
+		fallthrough
+	case reflect.Array:
+		return true
+	}
+	err := fmt.Errorf("invalid row type to report, should be a slice but got %s", t)
+	panic(err)
+	// return false
 }
 
-func (h *DB) BatchSet(ctx context.Context, model interface{}) *DB {
+func (h *DB) BatchSet(ctx context.Context, rows interface{}, selects []Column) *DB {
+	if !validateListable(reflect.TypeOf(rows)) {
+		h.Error = errors.New("batchSet need a slice as input, like []User")
+		return h
+	}
+	v := reflect.ValueOf(rows)
+	puts := []*hbase.TPut{}
+	for i := 0; i < v.Len(); i++ {
+		field := v.Index(i)
+		fmt.Println(field)
+		put := &hbase.TPut{}
+		h.injectValue(&field, put, selects)
+		puts = append(puts, put)
+	}
+	if v.Len() > 0 {
+		modelType := v.Index(0).Type()
+		m := reflect.New(modelType)
+		tb, ok := m.Interface().(Table)
+		if !ok {
+			panic("please set namespace and table name for this model")
+		}
+		err := h.db.PutMultiple(ctx, []byte(fmt.Sprintf("%s:%s", tb.Namespace(), tb.TableName())), puts)
+		h.Error = err
+	}
 	return h
 }
 
