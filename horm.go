@@ -259,12 +259,7 @@ func (h *DB) Set(ctx context.Context, model interface{}, selects []Column, rowke
 	if !ok {
 		panic("please set namespace and table name for this model")
 	}
-	// vals := reflect.ValueOf(model)
-	// var columns []*hbase.TColumnValue
 
-	// if selects != nil && len(selects) > 0 {
-	// 	columns = make([]*hbase.TColumnValue, 0, len(selects))
-	// }
 	value := reflect.ValueOf(model).Elem()
 	put := &hbase.TPut{}
 	h.injectValue(&value, put, selects)
