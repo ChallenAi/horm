@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/challenai/horm/codec"
+	"github.com/challenai/horm/logger"
 	"github.com/challenai/horm/thrift/hbase"
 )
 
@@ -25,6 +26,12 @@ type DB struct {
 	db           *hbase.THBaseServiceClient
 	schemas      map[string]schema
 	cdc          codec.Codec
+	log          logger.Logger
+}
+
+type Conf struct {
+	cdc codec.Codec
+	log logger.Logger
 }
 
 // schema used to store struct field and column mapping information
@@ -40,11 +47,12 @@ type Filter struct {
 }
 
 // create a new hbase database from thrift client
-func NewDB(client *hbase.THBaseServiceClient, c codec.Codec) *DB {
+func NewDB(client *hbase.THBaseServiceClient, conf *Conf) *DB {
 	hb := &DB{
 		db:      client,
 		schemas: map[string]schema{},
-		cdc:     c,
+		cdc:     conf.cdc,
+		log:     conf.log,
 	}
 	return hb
 }
@@ -233,6 +241,7 @@ func (h *DB) registerModel(values reflect.Value) schema {
 
 // get a single row.
 func (h *DB) Get(ctx context.Context, model interface{}, rowkey string) *DB {
+	h.log.Infof("start to set row")
 	// border case: input a nil as model, not allowed
 	if model == nil {
 		panic("can't input nil as a model")
@@ -256,6 +265,7 @@ func (h *DB) Get(ctx context.Context, model interface{}, rowkey string) *DB {
 
 // insert or update model to HBase
 func (h *DB) Set(ctx context.Context, model interface{}, selects []Column) *DB {
+	h.log.Infof("start to set row")
 	// border case: input a nil as model, not allowed
 	if model == nil {
 		panic("can't input nil as a model")
@@ -339,6 +349,7 @@ func validateListable(t reflect.Type) bool {
 }
 
 func (h *DB) BatchSet(ctx context.Context, rows interface{}, selects []Column) *DB {
+	h.log.Infof("start to batch set rows")
 	if !validateListable(reflect.TypeOf(rows)) {
 		h.Error = errors.New("batchSet need a slice as input, like []User")
 		return h
