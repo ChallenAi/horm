@@ -376,10 +376,60 @@ func (h *DB) BatchSet(ctx context.Context, rows interface{}, selects []Column) *
 	return h
 }
 
-func (h *DB) Delete(ctx context.Context, model interface{}, rowkey string) *DB {
+func (h *DB) Delete(ctx context.Context, model interface{}, rowkey string, columns []Column) *DB {
+	if model == nil {
+		panic("can't input nil as a model")
+	}
+	tb, ok := model.(Table)
+	if !ok {
+		panic("please set namespace and table name for this model")
+	}
+
+	del := &hbase.TDelete{
+		Row: []byte(rowkey),
+	}
+	if len(columns) > 0 {
+		del.Columns = transCols2TCols(columns)
+	}
+
+	err := h.db.DeleteSingle(ctx, []byte(fmt.Sprintf("%s:%s", tb.Namespace(), tb.TableName())), del)
+	h.Error = err
 	return h
 }
 
-func (h *DB) DeleteAll(ctx context.Context, model interface{}) *DB {
+func (h *DB) BatchDelete(ctx context.Context, model interface{}, rows []Row) *DB {
+	var dels []*hbase.TDelete
+	if model == nil {
+		panic("can't input nil as a model")
+	}
+	tb, ok := model.(Table)
+	if !ok {
+		panic("please set namespace and table name for this model")
+	}
+
+	for _, row := range rows {
+		del := &hbase.TDelete{
+			Row: []byte(row.Rowkey),
+		}
+		if len(row.Columns) > 0 {
+			del.Columns = transCols2TCols(row.Columns)
+		}
+		dels = append(dels, del)
+	}
+
+	_, err := h.db.DeleteMultiple(ctx, []byte(fmt.Sprintf("%s:%s", tb.Namespace(), tb.TableName())), dels)
+	h.Error = err
+
 	return h
+}
+
+func transCols2TCols(colums []Column) []*hbase.TColumn {
+	var result []*hbase.TColumn
+	for _, v := range colums {
+		result = append(result, &hbase.TColumn{
+			Family:    []byte(v.Family),
+			Qualifier: []byte(v.Name),
+		})
+	}
+	return result
 }

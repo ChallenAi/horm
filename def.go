@@ -17,3 +17,8 @@ type Column struct {
 	Name      string
 	Timestamp int64
 }
+
+type Row struct {
+	Rowkey  string
+	Columns []Column
+}
