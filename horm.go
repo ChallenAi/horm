@@ -423,6 +423,66 @@ func (h *DB) BatchDelete(ctx context.Context, model interface{}, rows []Row) *DB
 	return h
 }
 
+func (h *DB) CreateNamespace(ctx context.Context, namespace string) *DB {
+	nsDescriptor := &hbase.TNamespaceDescriptor{
+		Name: namespace,
+	}
+	err := h.db.CreateNamespace(ctx, nsDescriptor)
+	h.Error = err
+	return h
+}
+
+func (h *DB) CreateModel(ctx context.Context, model interface{}) *DB {
+	if model == nil {
+		panic("can't input nil as a model")
+	}
+	tb, ok := model.(Table)
+	if !ok {
+		panic("please set namespace and table name for this model")
+	}
+
+	tbName := &hbase.TTableName{
+		Ns:        []byte(tb.Namespace()),
+		Qualifier: []byte(tb.TableName()),
+	}
+	exist, err := h.db.TableExists(ctx, tbName)
+	h.Error = err
+	// if exist table or can't get exist query result, return error or stop creating table
+	if err != nil || exist {
+		return h
+	}
+
+	var cfs []*hbase.TColumnFamilyDescriptor
+	familySet := make(map[string]bool)
+	value := reflect.ValueOf(model).Elem()
+	schm, ok := h.schemas[value.Type().Name()]
+	if !ok {
+		schm = h.registerModel(value)
+	}
+	for _, col := range schm.field2col {
+		if len(col) > 0 {
+			colInfos := strings.Split(col, ":")
+			if len(colInfos) >= 2 {
+				familySet[colInfos[0]] = false
+			}
+		}
+	}
+	for k := range familySet {
+		cfs = append(cfs, &hbase.TColumnFamilyDescriptor{
+			Name: []byte(k),
+		})
+	}
+
+	tbDesc := &hbase.TTableDescriptor{
+		TableName: tbName,
+		Columns:   cfs,
+	}
+	err = h.db.CreateTable(ctx, tbDesc, nil)
+	h.Error = err
+
+	return h
+}
+
 func transCols2TCols(colums []Column) []*hbase.TColumn {
 	var result []*hbase.TColumn
 	for _, v := range colums {
