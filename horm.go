@@ -30,8 +30,8 @@ type DB struct {
 }
 
 type Conf struct {
-	cdc codec.Codec
-	log logger.Logger
+	Cdc codec.Codec
+	Log logger.Logger
 }
 
 // schema used to store struct field and column mapping information
@@ -51,8 +51,8 @@ func NewDB(client *hbase.THBaseServiceClient, conf *Conf) *DB {
 	hb := &DB{
 		db:      client,
 		schemas: map[string]schema{},
-		cdc:     conf.cdc,
-		log:     conf.log,
+		cdc:     conf.Cdc,
+		log:     conf.Log,
 	}
 	return hb
 }

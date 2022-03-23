@@ -13,8 +13,21 @@ func NewHBase(addr string, headers []client.Header) (*DB, error) {
 		return nil, err
 	}
 	hb := NewDB(client, &Conf{
-		cdc: &c.DefaultCodec{},
-		log: logger.NewStdLogger(),
+		Cdc: &c.DefaultCodec{},
+		Log: logger.NewStdLogger(),
+	})
+	return hb, nil
+}
+
+// NewHBaseWithLog create a new HBase DB
+func NewHBaseWithLog(addr string, headers []client.Header, log logger.Logger) (*DB, error) {
+	client, err := client.NewHBaseClient(addr, headers)
+	if err != nil {
+		return nil, err
+	}
+	hb := NewDB(client, &Conf{
+		Cdc: &c.DefaultCodec{},
+		Log: log,
 	})
 	return hb, nil
 }
@@ -26,8 +39,8 @@ func NewHBaseWithCodec(addr string, headers []client.Header, codec c.Codec) (*DB
 		return nil, err
 	}
 	hb := NewDB(client, &Conf{
-		cdc: codec,
-		log: logger.NewStdLogger(),
+		Cdc: codec,
+		Log: logger.NewStdLogger(),
 	})
 	return hb, nil
 }
