@@ -18,7 +18,6 @@ const (
 
 // Interface logger interface
 type Logger interface {
-	SetLevel(LogLevel)
 	Infof(string, ...interface{})
 	Warnf(string, ...interface{})
 	Errorf(string, ...interface{})
